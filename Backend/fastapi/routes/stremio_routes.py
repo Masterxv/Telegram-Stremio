@@ -524,7 +524,7 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
         "types": ["movie", "series", "other"],
         "resources": resources,
         "catalogs": catalogs,
-        "idPrefixes": ["tt", "tg", "kitsu", "ext_"],
+        "idPrefixes": ["tt", "tg", "kitsu", "ext_", "cncimport"],
         "behaviorHints": {
             "configurable": True,
             "configurationRequired": False
@@ -628,7 +628,7 @@ async def get_meta(token: str, media_type: str, id: str, token_data: dict = Depe
     if SettingsManager.current().hide_catalog:
         raise HTTPException(status_code=404, detail="Catalog disabled")
 
-    if media_type in {"movie", "other"} and id.startswith("ext_"):
+    if media_type in {"movie", "series", "other"} and id.startswith("ext_"):
         raw_id = custom_movie_id(id)
         if not raw_id or not await _title_allowed(imdb_id=raw_id.split(":")[0], token_data=token_data):
             return {"meta": {}}
@@ -644,6 +644,12 @@ async def get_meta(token: str, media_type: str, id: str, token_data: dict = Depe
 
     if not _token_can_view(media.get("visibility") or "public", media.get("allowed_tokens") or [], token_data):
         return {"meta": {}}
+
+    if media.get("external_source") == "CNCVerse" and media.get("external_media_id"):
+        remote = await movie_meta(media["external_media_id"])
+        if remote.get("meta"):
+            remote["meta"]["id"] = id
+            return remote
 
     meta_id = id
     if parsed["is_kitsu"] and kitsu_id is not None:
@@ -1036,7 +1042,7 @@ async def get_streams(
             ]
         }
 
-    if media_type in {"movie", "other"} and id.startswith("ext_"):
+    if media_type in {"movie", "series", "other"} and id.startswith("ext_"):
         raw_id = custom_movie_id(id)
         if not raw_id or not await _title_allowed(imdb_id=raw_id.split(":")[0], token_data=token_data):
             return {"streams": []}
@@ -1068,6 +1074,10 @@ async def get_streams(
     )
 
     streams = []
+    if media_details and media_details.get("external_source") == "CNCVerse":
+        external_id = media_details.get("external_media_id")
+        if external_id:
+            streams.extend(await custom_movie_streams(external_id))
 
     is_combined = season_num == COMBINED_SEASON and episode_num is not None and episode_num >= COMBINED_EPISODE_BASE
 
@@ -1144,7 +1154,7 @@ async def get_streams(
 
     # Access, subscription, quota and title visibility checks above also apply
     # to external streams. Do not send Telegram's synthetic combined IDs.
-    if not is_combined:
+    if not is_combined and not id.startswith("cncimport"):
         streams.extend(await external_streams(media_type, id))
 
     #----- Per-token quality filter (fall back to all if it would hide everything)

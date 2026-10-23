@@ -11,6 +11,7 @@ from Backend.fastapi import server
 from Backend.fastapi.main import app
 from Backend.helper import subscription_task_manager
 from Backend.helper.link_checker import DeadLinkChecker
+from Backend.helper.cncverse_importer import run_auto_import
 from Backend.helper.pinger import ping
 from Backend.helper.pyro import restart_notification, setup_bot_commands
 from Backend.helper.scan_manager import dbcheck_manager, duplicate_manager, scan_manager
@@ -74,6 +75,7 @@ async def start_services():
         LOGGER.info('Initializing Telegram-Stremio Web Server...')
         await restart_notification()
         loop.create_task(server.serve())
+        loop.create_task(run_auto_import(db))
         loop.create_task(ping())
 
         link_checker_task = DeadLinkChecker(db, app, check_interval_hours=24)

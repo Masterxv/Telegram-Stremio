@@ -115,7 +115,7 @@ async def catalog_response(catalog_id, extra=None):
         return {'metas': []}
     _, url, raw = provider
     media_type, raw = _typed_id(raw)
-    if media_type not in {'movie', 'other'}:
+    if media_type not in {'movie', 'series', 'other'}:
         return {'metas': []}
     suffix = '/catalog/' + media_type + '/' + quote(raw, safe='')
     if extra:
@@ -138,7 +138,7 @@ async def movie_meta(media_id, media_type="movie"):
         providers = [(label, url, raw)]
     else:
         providers = [(label, url, media_id) for label, url in _configured_addons()]
-    if media_type not in {'movie', 'other'}:
+    if media_type not in {'movie', 'series', 'other'}:
         return {'meta': {}}
     results = await asyncio.gather(*(
         _json(url, '/meta/' + media_type + '/' + quote(raw, safe='') + '.json')
@@ -158,7 +158,7 @@ async def custom_movie_streams(media_id):
         return []
     label, url, encoded = provider
     media_type, raw = _typed_id(encoded)
-    if media_type not in {'movie', 'other'}:
+    if media_type not in {'movie', 'series', 'other'}:
         return []
     return await _provider_streams(label, url, media_type, raw)
 
