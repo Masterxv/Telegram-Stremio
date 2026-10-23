@@ -521,7 +521,7 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
         "name": addon_name,
         "logo": "https://i.postimg.cc/XqWnmDXr/Picsart-25-10-09-08-09-45-867.png",
         "description": addon_desc,
-        "types": ["movie", "series"],
+        "types": ["movie", "series", "other"],
         "resources": resources,
         "catalogs": catalogs,
         "idPrefixes": ["tt", "tg", "kitsu", "ext_"],
@@ -547,13 +547,13 @@ async def get_catalog(token: str, media_type: str, id: str, extra: Optional[str]
     if SettingsManager.current().hide_catalog:
         raise HTTPException(status_code=404, detail="Catalog disabled")
 
-    if media_type not in ["movie", "series"]:
-        raise HTTPException(status_code=404, detail="Invalid catalog type")
-
     if id.startswith("extcat_"):
-        if media_type != "movie":
+        if media_type not in {"movie", "other"}:
             return {"metas": []}
         return await catalog_response(id, extra)
+
+    if media_type not in ["movie", "series"]:
+        raise HTTPException(status_code=404, detail="Invalid catalog type")
 
     genre_filter = None
     search_query = None
@@ -628,11 +628,11 @@ async def get_meta(token: str, media_type: str, id: str, token_data: dict = Depe
     if SettingsManager.current().hide_catalog:
         raise HTTPException(status_code=404, detail="Catalog disabled")
 
-    if media_type == "movie" and id.startswith("ext_"):
+    if media_type in {"movie", "other"} and id.startswith("ext_"):
         raw_id = custom_movie_id(id)
         if not raw_id or not await _title_allowed(imdb_id=raw_id.split(":")[0], token_data=token_data):
             return {"meta": {}}
-        return await movie_meta(id)
+        return await movie_meta(id, media_type)
 
     parsed = _parse_stremio_id(id)
     imdb_id = parsed["imdb_id"] if not parsed["is_kitsu"] else None
@@ -1036,7 +1036,7 @@ async def get_streams(
             ]
         }
 
-    if media_type == "movie" and id.startswith("ext_"):
+    if media_type in {"movie", "other"} and id.startswith("ext_"):
         raw_id = custom_movie_id(id)
         if not raw_id or not await _title_allowed(imdb_id=raw_id.split(":")[0], token_data=token_data):
             return {"streams": []}

@@ -82,27 +82,30 @@ async def movie_catalogs():
         if not isinstance(catalogs, list):
             continue
         for catalog in catalogs[:100]:
-            if not isinstance(catalog, dict) or catalog.get('type') != 'movie':
+            if not isinstance(catalog, dict) or catalog.get('type') not in {'movie', 'other'}:
                 continue
             cid = catalog.get('id')
             if not isinstance(cid, str) or not cid:
                 continue
             item = dict(catalog)
-            item['id'] = _wrap('extcat', _key(url), cid)
+            item['id'] = _wrap('extcat', _key(url), json.dumps([catalog['type'], cid]))
             item['name'] = f"{label} · {catalog.get('name') or cid}"
             result.append(item)
     return result
 
 
-def _movie_item(item, url):
+def _movie_item(item, url, media_type="movie"):
     if not isinstance(item, dict) or not isinstance(item.get('id'), str):
         return None
     result = dict(item)
     raw = item['id']
-    # Keep shared IMDb IDs so streams can be combined across all providers.
-    if not (raw.startswith('tt') and raw[2:].isdigit()):
-        result['id'] = _wrap('ext', _key(url), raw)
-    result['type'] = 'movie'
+    # Native movie IMDb IDs can merge providers; other IDs retain their origin/type.
+    if not (media_type == 'movie' and raw.startswith('tt') and raw[2:].isdigit()):
+        result['id'] = _wrap('ext', _key(url), json.dumps([media_type, raw]))
+    result['type'] = media_type
+    if isinstance(result.get('videos'), list):
+        result['videos'] = [dict(video, id=_wrap('ext', _key(url), json.dumps([media_type, video['id']])))
+                            for video in result['videos'] if isinstance(video, dict) and isinstance(video.get('id'), str)]
     return result
 
 
@@ -111,7 +114,10 @@ async def catalog_response(catalog_id, extra=None):
     if not provider:
         return {'metas': []}
     _, url, raw = provider
-    suffix = '/catalog/movie/' + quote(raw, safe='')
+    media_type, raw = _typed_id(raw)
+    if media_type not in {'movie', 'other'}:
+        return {'metas': []}
+    suffix = '/catalog/' + media_type + '/' + quote(raw, safe='')
     if extra:
         suffix += '/' + quote(extra, safe='=&')
     data = await _json(url, suffix + '.json')
@@ -119,18 +125,27 @@ async def catalog_response(catalog_id, extra=None):
     if not isinstance(items, list):
         return {'metas': []}
     return {'metas': [mapped for item in items[:500]
-                      if (mapped := _movie_item(item, url)) is not None]}
+                      if (mapped := _movie_item(item, url, media_type)) is not None]}
 
 
-async def movie_meta(media_id):
+async def movie_meta(media_id, media_type="movie"):
     provider = _unwrap('ext', media_id)
-    providers = [provider] if provider else [(label, url, media_id) for label, url in _configured_addons()]
+    if media_id.startswith('ext_') and not provider:
+        return {'meta': {}}
+    if provider:
+        label, url, encoded = provider
+        media_type, raw = _typed_id(encoded)
+        providers = [(label, url, raw)]
+    else:
+        providers = [(label, url, media_id) for label, url in _configured_addons()]
+    if media_type not in {'movie', 'other'}:
+        return {'meta': {}}
     results = await asyncio.gather(*(
-        _json(url, '/meta/movie/' + quote(raw, safe='') + '.json')
+        _json(url, '/meta/' + media_type + '/' + quote(raw, safe='') + '.json')
         for _, url, raw in providers
     ))
     for (_, url, _), data in zip(providers, results):
-        meta = _movie_item(data.get('meta'), url)
+        meta = _movie_item(data.get('meta'), url, media_type)
         if meta:
             meta['id'] = media_id
             return {'meta': meta}
@@ -141,10 +156,24 @@ async def custom_movie_streams(media_id):
     provider = _unwrap('ext', media_id)
     if not provider:
         return []
-    label, url, raw = provider
-    return await _provider_streams(label, url, 'movie', raw)
+    label, url, encoded = provider
+    media_type, raw = _typed_id(encoded)
+    if media_type not in {'movie', 'other'}:
+        return []
+    return await _provider_streams(label, url, media_type, raw)
 
 
 def custom_movie_id(media_id):
     provider = _unwrap('ext', media_id)
-    return provider[2] if provider else None
+    return _typed_id(provider[2])[1] if provider else None
+
+
+def _typed_id(raw):
+    # Old movie-only package IDs remain valid after this upgrade.
+    try:
+        value = json.loads(raw)
+        if isinstance(value, list) and len(value) == 2 and all(isinstance(v, str) for v in value):
+            return value[0], value[1]
+    except (ValueError, TypeError):
+        pass
+    return 'movie', raw

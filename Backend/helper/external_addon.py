@@ -49,7 +49,7 @@ async def _provider_streams(label: str, manifest: str, media_type: str, media_id
         LOGGER.warning("External addon configuration must be an HTTPS manifest URL")
         return []
     kind = "series" if media_type == "tv" else media_type
-    if kind not in {"movie", "series"}:
+    if kind not in {"movie", "series", "other"}:
         return []
     # Synthetic combined-season IDs are private to Telegram-Stremio.
     base = manifest[:-len("/manifest.json")]
