@@ -35,12 +35,12 @@ router = APIRouter(prefix="/stremio", tags=["Stremio Addon"])
 templates = Jinja2Templates(directory="Backend/fastapi/templates")
 
 #----- Addon configuration
-ADDON_NAME = "Telegram"
+ADDON_NAME = "Ethan Stream"
 ADDON_VERSION = __version__
 PAGE_SIZE = 15
 
 def _donation():
-    text = "Enjoying Telegram Stremio?\nTap to support the developer"
+    text = "Enjoying Ethan Stream?\nTap to support the developer"
     return {"name": "❤️ Support", "title": text, "description": text, "externalUrl": "https://donate.weebzonex.workers.dev"}
 
 def build_proxy_url(original_url: str) -> str | None:
@@ -337,7 +337,7 @@ def format_stream_details(filename: str, quality: str, size: str, is_split: bool
 
     resolution = parsed.get("resolution", quality)
     quality_type = parsed.get("quality", "")
-    stream_name = f"Telegram {resolution} {quality_type}".strip()
+    stream_name = f"Ethan Stream {resolution} {quality_type}".strip()
 
     stream_title_parts = [
         f"📁 {filename}",

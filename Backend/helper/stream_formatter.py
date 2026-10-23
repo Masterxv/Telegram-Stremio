@@ -1566,7 +1566,7 @@ def parse_filename(filename):
 
 
 #----- Build the AIOStreams-shaped value tree for one Telegram stream
-def build_parse_value(filename, size_bytes, *, addon_name="Telegram", is_split=False, parts=0,
+def build_parse_value(filename, size_bytes, *, addon_name="Ethan Stream", is_split=False, parts=0,
                       channel=None, proxied=False, meta=None):
     f = parse_filename(filename)
     meta = meta or {}
@@ -1638,7 +1638,7 @@ def format_stream(settings, filename, size_bytes, **kw):
 if __name__ == "__main__":
     pv = build_parse_value(
         "Dune.Part.Two.2024.2160p.UHD.BluRay.REMUX.DV.HDR10.HEVC.TrueHD.Atmos.7.1.ITA.ENG-GROUP.mkv",
-        65_000_000_000, addon_name="Telegram", channel="Movies HQ", meta={"queryType": "movie", "type": "movie"},
+        65_000_000_000, addon_name="Ethan Stream", channel="Movies HQ", meta={"queryType": "movie", "type": "movie"},
     )
     s = pv["stream"]
     assert s["resolution"] == "2160p" and s["quality"] == "BluRay REMUX" and s["encode"] == "HEVC", s

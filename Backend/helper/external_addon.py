@@ -53,7 +53,7 @@ async def _provider_streams(label: str, manifest: str, media_type: str, media_id
     kind = "series" if media_type == "tv" else media_type
     if kind not in {"movie", "series", "other"}:
         return []
-    # Synthetic combined-season IDs are private to Telegram-Stremio.
+    # Synthetic combined-season IDs are private to Ethan Stream.
     base = manifest[:-len("/manifest.json")]
     endpoint = f"{base}/stream/{kind}/{quote(media_id, safe='')}.json"
     try:

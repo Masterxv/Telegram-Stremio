@@ -1,4 +1,4 @@
-"""Import CNCVerse catalog metadata into the actual TG Stremio Media Library."""
+"""Import CNCVerse catalog metadata into the actual Ethan Stream Media Library."""
 import asyncio
 import hashlib
 import json

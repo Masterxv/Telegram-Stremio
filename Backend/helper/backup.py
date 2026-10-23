@@ -70,7 +70,7 @@ async def export_config() -> dict:
 
 async def import_config(payload: dict) -> dict:
     if not isinstance(payload, dict) or payload.get("app") != "telegram-stremio":
-        raise ValueError("This doesn't look like a Telegram-Stremio backup file.")
+        raise ValueError("This doesn't look like a Ethan Stream backup file.")
 
     result = {}
 
