@@ -19,6 +19,7 @@ from Backend.helper.cf_stream import cf_enabled, cf_stream_url
 from Backend.fastapi.themes import DEFAULT_THEME, DEFAULT_STYLE, get_theme
 from Backend.helper.fanart import fanart_artwork
 from Backend.helper.external_addon import external_streams
+from Backend.helper.library_streams import combined_library_streams
 from Backend.helper.external_catalogs import movie_catalogs, catalog_response, movie_meta, custom_movie_streams, custom_movie_id
 from Backend.helper.global_search import global_search, is_global_search_enabled
 from Backend.helper.metadata.providers.cinemeta import get_detail, get_season
@@ -1077,7 +1078,7 @@ async def get_streams(
     if media_details and media_details.get("external_source") == "CNCVerse":
         external_id = media_details.get("external_media_id")
         if external_id:
-            streams.extend(await custom_movie_streams(external_id))
+            streams.extend((await combined_library_streams(media_details))["streams"])
 
     is_combined = season_num == COMBINED_SEASON and episode_num is not None and episode_num >= COMBINED_EPISODE_BASE
 

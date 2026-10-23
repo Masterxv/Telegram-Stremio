@@ -942,3 +942,33 @@ async def cncverse_library_catalogs(_: bool = Depends(require_auth)):
     for cid, count in counts.items():
         catalogs.setdefault(cid, {'id': cid, 'name': cid, 'imported_count': count})
     return {'catalogs': list(catalogs.values())}
+
+
+@app.get("/api/cncverse-library/streams")
+async def cncverse_library_stream_links(
+    tmdb_id: int,
+    db_index: int = Query(1, ge=1),
+    media_type: str = Query('movie', pattern='^(movie|tv)$'),
+    video_id: str = Query('', max_length=5000),
+    _: bool = Depends(require_auth),
+):
+    from Backend import db
+    from Backend.helper.external_catalogs import movie_meta
+    from Backend.helper.library_streams import combined_library_streams
+    if f'storage_{db_index}' not in db.dbs:
+        raise HTTPException(status_code=404, detail='Storage database not found')
+    document = await db.get_document(media_type, tmdb_id, db_index)
+    if not document:
+        raise HTTPException(status_code=404, detail='Title not found')
+    source_id = document.get('external_media_id')
+    if document.get('external_source') != 'CNCVerse' or not source_id:
+        raise HTTPException(status_code=400, detail='This title has no CNCVerse source reference')
+    metadata = (await movie_meta(source_id)).get('meta') or {}
+    videos = metadata.get('videos') or []
+    videos = [v for v in videos if isinstance(v, dict) and isinstance(v.get('id'), str)] if isinstance(videos, list) else []
+    if video_id:
+        if video_id not in {v['id'] for v in videos}:
+            raise HTTPException(status_code=400, detail='Episode does not belong to this title')
+        source_id = video_id
+    result = await combined_library_streams(document, metadata, video_id)
+    return JSONResponse({**result, 'videos': videos}, headers={'Cache-Control': 'no-store'})

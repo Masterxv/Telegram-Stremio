@@ -38,7 +38,9 @@ async def external_streams(media_type: str, media_id: str) -> list[dict]:
     return [stream for result in results for stream in result]
 
 
-async def _provider_streams(label: str, manifest: str, media_type: str, media_id: str) -> list[dict]:
+async def _provider_streams(label: str, manifest: str, media_type: str, media_id: str, status: dict | None = None) -> list[dict]:
+    if status is not None:
+        status.update(name=label, status="invalid_configuration", count=0)
     try:
         parsed = urlsplit(manifest)
     except ValueError:
@@ -84,8 +86,14 @@ async def _provider_streams(label: str, manifest: str, media_type: str, media_id
             if fingerprint not in seen:
                 streams.append(item)
                 seen.add(fingerprint)
+        if status is not None:
+            status.update(status="ok" if streams else "no_streams", count=len(streams))
         return streams
     except Exception as exc:
+        if status is not None:
+            response = getattr(exc, "response", None)
+            code = getattr(response, "status_code", None)
+            status.update(status=f"HTTP {code}" if code else type(exc).__name__, count=0)
         # Do not log the exception text: it may contain the secret manifest URL.
         LOGGER.warning("External addon unavailable (%s); keeping Telegram results", type(exc).__name__)
         return []

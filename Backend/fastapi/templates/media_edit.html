@@ -595,11 +595,26 @@
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5 sm:mb-6">
             <h3 class="section-title text-xl sm:text-2xl">Available Content</h3>
             <div class="flex items-center gap-2">
+                {% if media_details.external_source == 'CNCVerse' %}
+                <button type="button" onclick="loadCncStreamLinks()" class="btn-ui btn-success">Refresh provider streams</button>
+                {% else %}
                 <button type="button" onclick="openAddStream()" class="btn-ui btn-success">
                     ➕ {{ 'Add Season / Episode / Stream' if media_type == 'tv' else 'Add Stream' }}
                 </button>
+                {% endif %}
             </div>
         </div>
+
+        {% if media_details.external_source == 'CNCVerse' %}
+        <section class="rounded-2xl border border-hairline p-4 mb-5" aria-label="CNCVerse streams">
+            <h4 class="font-bold">CNCVerse + Pengu streams</h4>
+            <p class="muted text-sm mt-2">Links are resolved when this page opens. Refresh to get current links.</p>
+            <select id="cnc-video-select" class="field-input hidden mt-3" aria-label="Select episode" onchange="loadCncStreamLinks(this.value)"></select>
+            <p id="cnc-stream-state" class="muted text-sm mt-3" role="status">Loading current stream links…</p>
+            <p id="cnc-provider-status" class="muted text-sm mt-2" role="status"></p>
+            <div id="cnc-stream-links" class="space-y-3 mt-3"></div>
+        </section>
+        {% endif %}
 
         {% if media_type == 'movie' and media_details.telegram %}
         <div class="space-y-3" id="movie-quality-list">
@@ -722,7 +737,7 @@
         <div id="content-empty-state-tv" class="hidden text-center py-10">
             <p class="muted text-sm sm:text-base">No content available</p>
         </div>
-        {% else %}
+        {% elif media_details.external_source != 'CNCVerse' %}
         <div class="text-center py-10">
             <svg class="mx-auto h-12 w-12 text-muted mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -921,6 +936,72 @@
     const tmdbId = {{ tmdb_id }};
     const dbIndex = {{ db_index }};
     const mediaType = '{{ media_type }}';
+
+    async function loadCncStreamLinks(videoId = '') {
+        const state = document.getElementById('cnc-stream-state');
+        const list = document.getElementById('cnc-stream-links');
+        const select = document.getElementById('cnc-video-select');
+        if (!state || !list) return;
+        state.textContent = 'Resolving CNCVerse and configured provider streams…';
+        list.replaceChildren();
+        const params = new URLSearchParams({tmdb_id: String(tmdbId), db_index: String(dbIndex), media_type: mediaType});
+        if (videoId) params.set('video_id', videoId);
+        try {
+            const response = await fetch('/api/cncverse-library/streams?' + params, {credentials:'same-origin', cache:'no-store'});
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || 'Could not load streams');
+            const providerStatus = document.getElementById('cnc-provider-status');
+            if (providerStatus) providerStatus.textContent = (data.providers || []).map(p => `${p.name}: ${p.status} (${p.count || 0} links)`).join(' · ');
+            if (!videoId && select) {
+                select.replaceChildren();
+                const initial = document.createElement('option');
+                initial.value = ''; initial.textContent = 'Title streams / select an episode'; select.appendChild(initial);
+                for (const video of data.videos || []) {
+                    const option = document.createElement('option');
+                    option.value = video.id;
+                    option.textContent = video.title || video.name || `Episode ${video.episode || ''}`;
+                    select.appendChild(option);
+                }
+                select.classList.toggle('hidden', !(data.videos || []).length);
+            }
+            let count = 0;
+            for (const stream of data.streams || []) {
+                let target = stream.url || stream.externalUrl || '';
+                if (!target && /^[a-f0-9]{40}$/i.test(stream.infoHash || '')) {
+                    target = 'magnet:?xt=urn:btih:' + stream.infoHash;
+                }
+                try {
+                    const parsed = new URL(target);
+                    if (!['https:', 'http:', 'magnet:'].includes(parsed.protocol)) continue;
+                } catch (_) { continue; }
+                const card = document.createElement('div');
+                card.className = 'quality-row rounded-2xl p-4';
+                const name = document.createElement('strong'); name.textContent = stream.name || 'CNCVerse'; card.appendChild(name);
+                const title = document.createElement('p'); title.className = 'muted text-sm mt-2 whitespace-pre-wrap';
+                title.textContent = stream.title || stream.description || ''; card.appendChild(title);
+                const row = document.createElement('div'); row.className = 'flex flex-wrap gap-2 mt-3';
+                const open = document.createElement('a'); open.href = target; open.target = '_blank'; open.rel = 'noopener noreferrer';
+                open.className = 'btn-ui btn-primary'; open.textContent = stream.externalUrl && !stream.url ? 'Open external page' : 'Open stream'; row.appendChild(open);
+                const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'btn-ui btn-ghost'; copy.textContent = 'Copy link';
+                copy.onclick = async () => {
+                    try { await navigator.clipboard.writeText(target); copy.textContent = 'Copied'; }
+                    catch (_) { copy.textContent = 'Copy from link field below'; }
+                };
+                row.appendChild(copy); card.appendChild(row);
+                const field = document.createElement('input'); field.type = 'text'; field.readOnly = true; field.className = 'field-input mt-3';
+                field.value = target; field.setAttribute('aria-label', 'Stream link'); field.onclick = () => field.select(); card.appendChild(field);
+                if (stream.behaviorHints && stream.behaviorHints.proxyHeaders) {
+                    const hint = document.createElement('p'); hint.className = 'muted text-xs mt-2';
+                    hint.textContent = 'This source uses player request headers; opening its URL in a browser may fail.'; card.appendChild(hint);
+                }
+                list.appendChild(card); count++;
+            }
+            state.textContent = count ? `${count} links returned by configured providers.` : 'No stream links returned. Select an episode if available, or refresh later.';
+        } catch (error) { state.textContent = error.message || 'Could not load CNCVerse streams.'; }
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+        if (document.getElementById('cnc-stream-links')) loadCncStreamLinks();
+    });
 
     let selectedRescanMatch = null;
     let latestRescanResults = [];
