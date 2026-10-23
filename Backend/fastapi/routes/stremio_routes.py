@@ -18,6 +18,7 @@ from Backend.fastapi.security.tokens import verify_token
 from Backend.helper.cf_stream import cf_enabled, cf_stream_url
 from Backend.fastapi.themes import DEFAULT_THEME, DEFAULT_STYLE, get_theme
 from Backend.helper.fanart import fanart_artwork
+from Backend.helper.external_addon import external_streams
 from Backend.helper.global_search import global_search, is_global_search_enabled
 from Backend.helper.metadata.providers.cinemeta import get_detail, get_season
 from Backend.helper.metadata import resolve_cover_url, COMBINED_SEASON, COMBINED_EPISODE_BASE
@@ -1120,6 +1121,11 @@ async def get_streams(
             )
         except Exception as e:
             LOGGER.error(f"[GLOBAL SEARCH] stream search failed for {id}: {e}")
+
+    # Access, subscription, quota and title visibility checks above also apply
+    # to external streams. Do not send Telegram's synthetic combined IDs.
+    if not is_combined:
+        streams.extend(await external_streams(media_type, id))
 
     #----- Per-token quality filter (fall back to all if it would hide everything)
     config = token_data.get("config") or {}
