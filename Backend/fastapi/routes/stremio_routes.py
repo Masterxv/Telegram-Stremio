@@ -19,6 +19,7 @@ from Backend.helper.cf_stream import cf_enabled, cf_stream_url
 from Backend.fastapi.themes import DEFAULT_THEME, DEFAULT_STYLE, get_theme
 from Backend.helper.fanart import fanart_artwork
 from Backend.helper.external_addon import external_streams
+from Backend.helper.external_catalogs import movie_catalogs, catalog_response, movie_meta, custom_movie_streams, custom_movie_id
 from Backend.helper.global_search import global_search, is_global_search_enabled
 from Backend.helper.metadata.providers.cinemeta import get_detail, get_season
 from Backend.helper.metadata import resolve_cover_url, COMBINED_SEASON, COMBINED_EPISODE_BASE
@@ -465,6 +466,8 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
         except Exception:
             pass
 
+        catalogs.extend(await movie_catalogs())
+
         try:
             order = await db.get_catalog_order()
             token_order = (token_data.get("config") or {}).get("catalog_order") or []
@@ -521,7 +524,7 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
         "types": ["movie", "series"],
         "resources": resources,
         "catalogs": catalogs,
-        "idPrefixes": ["tt", "tg", "kitsu"],
+        "idPrefixes": ["tt", "tg", "kitsu", "ext_"],
         "behaviorHints": {
             "configurable": True,
             "configurationRequired": False
@@ -546,6 +549,11 @@ async def get_catalog(token: str, media_type: str, id: str, extra: Optional[str]
 
     if media_type not in ["movie", "series"]:
         raise HTTPException(status_code=404, detail="Invalid catalog type")
+
+    if id.startswith("extcat_"):
+        if media_type != "movie":
+            return {"metas": []}
+        return await catalog_response(id, extra)
 
     genre_filter = None
     search_query = None
@@ -620,13 +628,19 @@ async def get_meta(token: str, media_type: str, id: str, token_data: dict = Depe
     if SettingsManager.current().hide_catalog:
         raise HTTPException(status_code=404, detail="Catalog disabled")
 
+    if media_type == "movie" and id.startswith("ext_"):
+        raw_id = custom_movie_id(id)
+        if not raw_id or not await _title_allowed(imdb_id=raw_id.split(":")[0], token_data=token_data):
+            return {"meta": {}}
+        return await movie_meta(id)
+
     parsed = _parse_stremio_id(id)
     imdb_id = parsed["imdb_id"] if not parsed["is_kitsu"] else None
     kitsu_id = parsed["kitsu_id"]
 
     media = await db.get_media_details(imdb_id=imdb_id, kitsu_id=kitsu_id)
     if not media:
-        return {"meta": {}}
+        return await movie_meta(id) if media_type == "movie" else {"meta": {}}
 
     if not _token_can_view(media.get("visibility") or "public", media.get("allowed_tokens") or [], token_data):
         return {"meta": {}}
@@ -1021,6 +1035,12 @@ async def get_streams(
                 }
             ]
         }
+
+    if media_type == "movie" and id.startswith("ext_"):
+        raw_id = custom_movie_id(id)
+        if not raw_id or not await _title_allowed(imdb_id=raw_id.split(":")[0], token_data=token_data):
+            return {"streams": []}
+        return {"streams": await custom_movie_streams(id)}
 
     try:
         parsed = _parse_stremio_id(id)
