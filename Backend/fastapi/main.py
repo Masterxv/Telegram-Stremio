@@ -877,3 +877,9 @@ async def auth_exception_handler(request: Request, exc):
             headers.update(exc.headers)
         return JSONResponse(status_code=401, content={"detail": detail}, headers=headers)
     return RedirectResponse(url="/login", status_code=302)
+
+
+@app.get("/api/cncverse-import/status")
+async def cncverse_import_status(_: bool = Depends(require_auth)):
+    from Backend.helper.cncverse_importer import import_status
+    return import_status()

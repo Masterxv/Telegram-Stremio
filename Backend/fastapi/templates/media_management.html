@@ -41,7 +41,7 @@
                     <input type="checkbox" {% if custom %}checked{% endif %}
                            onchange="window.location.href='/media/manage?media_type={{ media_type }}' + (this.checked ? '&custom=1' : '')"
                            class="w-4 h-4 rounded accent-amber-500 cursor-pointer">
-                    <i class="fa-solid fa-star"></i> ${item.external_source === 'CNCVerse' ? 'CNCVerse' : 'Custom'}
+                    <i class="fa-solid fa-star"></i> Custom
                 </label>
                 <button type="button" onclick="openManualAdd()"
                    class="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-full text-sm font-bold transition border bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-500/20 hover:bg-emerald-500/90">
@@ -50,6 +50,11 @@
             </div>
         </div>
     </section>
+
+    <div class="glass-panel rounded-2xl p-4 mb-6 text-sm" role="status">
+        <strong>CNCVerse import — 2026 · English / Telugu / Hindi</strong>
+        <p id="cnc-import-status" class="mt-2 text-text-secondary">Checking importer status…</p>
+    </div>
 
     <!-- Loading Indicator -->
     <div id="loading" class="hidden text-center py-16">
@@ -126,6 +131,31 @@
 </div>
 
 <script>
+    let lastImportCount = null;
+    async function refreshCncStatus() {
+        const box = document.getElementById('cnc-import-status');
+        try {
+            const response = await fetch('/api/cncverse-import/status', {credentials: 'same-origin'});
+            if (!response.ok) throw new Error('Status unavailable');
+            const data = await response.json();
+            if (!data.configured) {
+                box.textContent = 'CNCVerse URL missing. Set EXTERNAL_ADDON_2_MANIFEST_URL in Orkestr, save and redeploy.';
+            } else if (!data.enabled) {
+                box.textContent = 'Import disabled. Set CNCVERSE_AUTO_IMPORT=true and redeploy.';
+            } else {
+                box.textContent = `${data.status}: ${data.checked || 0} checked, ${data.processed || 0} matched, ${data.skipped || 0} skipped. ${data.catalog || ''} ${data.error_type || ''}`;
+                if (lastImportCount !== null && data.processed > lastImportCount && !isLoading) loadMedia(currentPage, currentSearch);
+                lastImportCount = data.processed || 0;
+            }
+        } catch (error) {
+            box.textContent = 'Importer status unavailable. Check Orkestr runtime logs.';
+        }
+    }
+    window.addEventListener('DOMContentLoaded', () => {
+        refreshCncStatus();
+        setInterval(refreshCncStatus, 10000);
+    });
+
     let currentPage = 1;
     let currentSearch = '';
     let isLoading = false;
@@ -304,7 +334,7 @@
                 ${Number(item.tmdb_id) < 0 ? `
                 <div class="absolute top-3 right-3">
                     <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/90 text-white text-[11px] font-bold border border-amber-400/40">
-                        <i class="fa-solid fa-star"></i> Custom
+                        <i class="fa-solid fa-star"></i> ${item.external_source === 'CNCVerse' ? 'CNCVerse' : 'Custom'}
                     </span>
                 </div>` : ''}
                 ${mediaBadges(item)}

@@ -12,6 +12,13 @@ from Backend.helper.external_catalogs import _json, _key, _wrap
 from Backend.logger import LOGGER
 
 
+IMPORT_STATUS = {'status': 'waiting', 'processed': 0, 'checked': 0, 'skipped': 0, 'pages': 0}
+
+
+def import_status():
+    return {**IMPORT_STATUS, 'configured': bool(_sources()), 'enabled': os.getenv('CNCVERSE_AUTO_IMPORT', 'true').lower() in {'true', '1', 'yes'}}
+
+
 def _number(name, default, maximum):
     try:
         return max(1, min(maximum, int(os.getenv(name, str(default)))))
@@ -88,6 +95,21 @@ async def _filtered_item(item, url, kind):
     for key, value in item.items():
         if merged.get(key) in (None, '', []):
             merged[key] = value
+    if _release_year(merged) == 2026 and not _languages(merged):
+        # CNCVerse often omits language in metadata. Require explicit language
+        # labels on the returned stream choices rather than guessing from title.
+        streams = (await _json(url, '/stream/' + source_type + '/' + quote(raw, safe='') + '.json')).get('streams', [])
+        languages = set()
+        if isinstance(streams, list):
+            for stream in streams[:100]:
+                if not isinstance(stream, dict):
+                    continue
+                # Provider display fields, not URLs or subtitle track languages.
+                for field in ('name', 'title', 'description'):
+                    languages.update(_languages({'name': stream.get(field) or ''}))
+                languages.update(_languages(stream))
+        if languages:
+            merged['audio_languages'] = sorted(languages)
     return merged if _eligible(merged) else None
 
 
@@ -158,11 +180,13 @@ async def _save(db, item, url, kind, catalog_id):
 async def sync_library(db):
     sources = _sources()
     if not sources:
+        IMPORT_STATUS.update(status='not_configured')
         LOGGER.info('CNCVerse import: no CNCVerse manifest configured')
         return
     pages = _number('CNCVERSE_IMPORT_MAX_PAGES', 10, 100)
     max_items = _number('CNCVERSE_IMPORT_MAX_ITEMS', 50000, 200000)
     counts = {'processed': 0, 'pages': 0, 'empty_or_failed_pages': 0, 'skipped': 0}
+    IMPORT_STATUS.update(status='running', checked=0, **counts)
     seen = set()
     checked = set()
     tracking = db.dbs['tracking']['state']
@@ -186,6 +210,7 @@ async def sync_library(db):
                     options = extra.get('options') or []
                     if isinstance(options, list):
                         jobs.extend((c, genre) for genre in options[:100] if isinstance(genre, str))
+        jobs.sort(key=lambda job: 0 if job[1] and re.search(r'latest|new|2026', job[1], re.I) else 1)
         for catalog, genre in jobs:
             offset = 0
             page_ids_seen = set()
@@ -204,6 +229,7 @@ async def sync_library(db):
                     counts['empty_or_failed_pages'] += 1
                     break
                 counts['pages'] += 1
+                IMPORT_STATUS.update(catalog=catalog.get('name') or catalog['id'], **counts)
                 fingerprint = tuple(item.get('id') for item in items if isinstance(item, dict) and isinstance(item.get('id'), str))
                 if not fingerprint or fingerprint in page_ids_seen:
                     break  # Providers may ignore skip and repeat the first page.
@@ -215,6 +241,7 @@ async def sync_library(db):
                     if identity in checked:
                         continue
                     checked.add(identity)
+                    IMPORT_STATUS.update(checked=len(checked), **counts)
                     doc_id = await _save(db, item, url, catalog['type'], catalog['id'])
                     if not doc_id:
                         counts['skipped'] += 1
@@ -223,6 +250,7 @@ async def sync_library(db):
                     if doc_id and doc_id not in seen:
                         seen.add(doc_id)
                         counts['processed'] += 1
+                    IMPORT_STATUS.update(checked=len(checked), **counts)
                     if counts['processed'] >= max_items:
                         break
                 await tracking.update_one({'_id': 'cncverse_import'}, {'$set': counts})
@@ -244,6 +272,7 @@ async def sync_library(db):
     await tracking.update_one({'_id': 'cncverse_import'}, {'$set': {
         'status': 'finished', 'finished_at': datetime.utcnow(), **counts,
     }})
+    IMPORT_STATUS.update(status='finished', **counts)
     LOGGER.info('CNCVerse import finished: %s unique titles processed. Refresh Media.', counts['processed'])
 
 
@@ -257,6 +286,7 @@ async def run_auto_import(db):
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            IMPORT_STATUS.update(status='error', error_type=type(exc).__name__)
             LOGGER.error('CNCVerse import failed (%s); retrying next cycle', type(exc).__name__)
             try:
                 await db.dbs['tracking']['state'].update_one({'_id': 'cncverse_import'}, {'$set': {
