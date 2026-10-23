@@ -56,6 +56,16 @@
         <p id="cnc-import-status" class="mt-2 text-text-secondary">Checking importer status…</p>
     </div>
 
+    <section class="glass-panel rounded-2xl p-4 mb-6">
+        <div class="flex flex-wrap gap-2">
+            <button type="button" id="cnc-new-titles" onclick="showCncNewTitles()" class="px-4 py-2 rounded-xl bg-primary text-white font-bold">Show new titles</button>
+            <button type="button" onclick="showCncCatalogs()" class="px-4 py-2 rounded-xl glass-panel font-bold">Show Catalogs</button>
+            <button type="button" onclick="showAllLibraryTitles()" class="px-4 py-2 rounded-xl glass-panel">All library titles</button>
+        </div>
+        <p id="cnc-library-filter" class="mt-3 text-sm text-text-secondary">All library titles</p>
+        <div id="cnc-catalog-list" class="hidden mt-3 flex flex-wrap gap-2" role="region" aria-label="CNCVerse catalogs"></div>
+    </section>
+
     <!-- Loading Indicator -->
     <div id="loading" class="hidden text-center py-16">
         <div class="inline-flex items-center justify-center w-14 h-14 rounded-full border border-hairline glass-panel mb-4">
@@ -131,6 +141,46 @@
 </div>
 
 <script>
+    let cncLibraryMode = false;
+    let selectedCncCatalog = '';
+    function showCncNewTitles() {
+        cncLibraryMode = true;
+        selectedCncCatalog = '';
+        document.getElementById('cnc-library-filter').textContent = 'CNCVerse · newest imported first · 2026 · English / Telugu / Hindi';
+        loadMedia(1, currentSearch);
+    }
+    function showAllLibraryTitles() {
+        cncLibraryMode = false;
+        selectedCncCatalog = '';
+        document.getElementById('cnc-library-filter').textContent = 'All library titles';
+        loadMedia(1, currentSearch);
+    }
+    async function showCncCatalogs() {
+        const list = document.getElementById('cnc-catalog-list');
+        list.classList.remove('hidden');
+        list.textContent = 'Loading catalogs…';
+        try {
+            const response = await fetch('/api/cncverse-library/catalogs', {credentials:'same-origin'});
+            if (!response.ok) throw new Error('Catalog request failed');
+            const data = await response.json();
+            list.textContent = '';
+            if (!data.catalogs.length) list.textContent = 'No CNCVerse catalogs available. Check the importer status above.';
+            for (const catalog of data.catalogs) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'px-3 py-2 rounded-xl glass-panel text-sm';
+                button.textContent = `${catalog.name} (${catalog.imported_count} imported)`;
+                button.onclick = () => {
+                    cncLibraryMode = true;
+                    selectedCncCatalog = catalog.id;
+                    document.getElementById('cnc-library-filter').textContent = `${catalog.name} · imported 2026 titles · newest first`;
+                    loadMedia(1, currentSearch);
+                };
+                list.appendChild(button);
+            }
+        } catch (error) { list.textContent = 'Could not load catalogs. Check server logs.'; }
+    }
+
     let lastImportCount = null;
     async function refreshCncStatus() {
         const box = document.getElementById('cnc-import-status');
@@ -206,7 +256,9 @@
         syncPageUrl(page, search);
 
         try {
-            const url = `/api/media/list?media_type=${mediaType}&page=${page}&page_size=24&search=${encodeURIComponent(search)}&custom=${isCustom ? 1 : 0}`;
+            const url = cncLibraryMode
+                ? `/api/cncverse-library?media_type=${mediaType}&page=${page}&page_size=24&search=${encodeURIComponent(search)}&catalog=${encodeURIComponent(selectedCncCatalog)}`
+                : `/api/media/list?media_type=${mediaType}&page=${page}&page_size=24&search=${encodeURIComponent(search)}&custom=${isCustom ? 1 : 0}`;
             const response = await fetch(url, {
                 method: 'GET',
                 credentials: 'same-origin',

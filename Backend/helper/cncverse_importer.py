@@ -239,6 +239,15 @@ async def sync_library(db):
                         continue
                     identity = (url, item.get('type') or catalog['type'], str(item.get('id') or ''))
                     if identity in checked:
+                        # Associate a title with every shelf without resolving it twice.
+                        raw = item.get('id')
+                        source_type = item.get('type') or catalog['type']
+                        if isinstance(raw, str):
+                            digest = hashlib.sha256((_key(url) + '\0' + source_type + '\0' + raw).encode()).hexdigest()
+                            doc_id = 'cncverse_' + digest
+                            if doc_id in seen:
+                                collection = 'tv' if source_type == 'series' else 'movie'
+                                await db.dbs['storage_1'][collection].update_one({'_id': doc_id}, {'$addToSet': {'external_catalogs': catalog['id']}})
                         continue
                     checked.add(identity)
                     IMPORT_STATUS.update(checked=len(checked), **counts)

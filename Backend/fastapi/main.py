@@ -883,3 +883,62 @@ async def auth_exception_handler(request: Request, exc):
 async def cncverse_import_status(_: bool = Depends(require_auth)):
     from Backend.helper.cncverse_importer import import_status
     return import_status()
+
+
+@app.get("/api/cncverse-library")
+async def cncverse_library(
+    media_type: str = Query('movie', pattern='^(movie|tv)$'),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(24, ge=1, le=100),
+    search: str = Query('', max_length=100),
+    catalog: str = Query('', max_length=500),
+    _: bool = Depends(require_auth),
+):
+    import re
+    from Backend import db
+    from Backend.helper.database import convert_objectid_to_str
+    query = {'external_source': 'CNCVerse', 'release_year': 2026,
+             'external_import_languages': {'$in': ['en', 'te', 'hi']}}
+    if catalog:
+        query['external_catalogs'] = catalog
+    if search:
+        query['title'] = {'$regex': re.escape(search), '$options': 'i'}
+    results, checked, total = await db._paginate_collection(
+        media_type, {'created_on': -1, '_id': 1}, page, page_size, filter_dict=query,
+    )
+    return {
+        'movies' if media_type == 'movie' else 'tv_shows': [convert_objectid_to_str(item) for item in results],
+        'total_count': total, 'total_pages': (total + page_size - 1) // page_size,
+        'current_page': page, 'databases_checked': checked,
+    }
+
+
+@app.get("/api/cncverse-library/catalogs")
+async def cncverse_library_catalogs(_: bool = Depends(require_auth)):
+    from Backend import db
+    from Backend.helper.cncverse_importer import _sources
+    from Backend.helper.external_catalogs import _manifest
+    counts = {}
+    for index in range(1, db.current_db_index + 1):
+        for collection in ('movie', 'tv'):
+            cursor = db.dbs[f'storage_{index}'][collection].aggregate([
+                {'$match': {'external_source': 'CNCVerse', 'release_year': 2026,
+                            'external_import_languages': {'$in': ['en', 'te', 'hi']}}},
+                {'$unwind': '$external_catalogs'},
+                {'$group': {'_id': '$external_catalogs', 'count': {'$sum': 1}}},
+            ])
+            async for item in cursor:
+                counts[item['_id']] = counts.get(item['_id'], 0) + item['count']
+    catalogs = {}
+    for label, url in _sources():
+        manifest = await _manifest(url)
+        for catalog in manifest.get('catalogs', []):
+            if not isinstance(catalog, dict) or catalog.get('type') not in {'movie', 'series', 'other'}:
+                continue
+            cid = catalog.get('id')
+            if isinstance(cid, str):
+                catalogs[cid] = {'id': cid, 'name': catalog.get('name') or cid,
+                                 'imported_count': counts.get(cid, 0)}
+    for cid, count in counts.items():
+        catalogs.setdefault(cid, {'id': cid, 'name': cid, 'imported_count': count})
+    return {'catalogs': list(catalogs.values())}
